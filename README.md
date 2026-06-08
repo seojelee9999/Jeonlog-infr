@@ -46,6 +46,14 @@ terraform/
     network/
 ```
 
+## 모니터링 대시보드
+
+운영 환경에서는 Grafana와 Prometheus를 이용해 EC2 및 애플리케이션 메트릭을 수집하도록 구성했습니다.
+
+### Grafana 대시보드
+
+![Grafana Dashboard](docs/grafana-dashboard.png)
+
 ## 사용 방법
 
 AWS 자격 증명은 로컬 프로파일, IAM Role, 또는 환경 변수 방식으로 준비해야 합니다.
