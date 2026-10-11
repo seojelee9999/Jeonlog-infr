@@ -1,4 +1,4 @@
-# ── Grafana EC2 (2차 TFA — 앱 정상 확인 후 적용) ──────────────────
+# ── 모니터링 EC2 (prod 스택에 포함) ────────────────────────────
 
 # Grafana EC2용 보안그룹
 resource "aws_security_group" "grafana" {
@@ -138,6 +138,7 @@ resource "aws_instance" "grafana" {
   user_data = templatefile("${path.module}/scripts/grafana_setup.sh", {
     asg_name               = "${var.name_prefix}-asg"
     aws_region             = var.aws_region
+    app_port               = var.app_port
     grafana_admin_password = var.grafana_admin_password
     redis_password         = var.redis_password
   })

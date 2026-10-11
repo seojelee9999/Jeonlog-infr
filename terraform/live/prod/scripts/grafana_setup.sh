@@ -27,7 +27,7 @@ scrape_configs:
     metrics_path: '/actuator/prometheus'
     ec2_sd_configs:
       - region: ${aws_region}
-        port: 5000
+        port: ${app_port}
         filters:
           - name: "tag:aws:autoscaling:groupName"
             values: ["${asg_name}"]

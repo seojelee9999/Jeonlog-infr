@@ -115,9 +115,9 @@ resource "aws_iam_role_policy" "s3_access" {
         Resource = [data.aws_s3_bucket.app.arn]
       },
       {
-        Sid    = "ObjectReadWrite"
-        Effect = "Allow"
-        Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+        Sid      = "ObjectReadWrite"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
         Resource = ["${data.aws_s3_bucket.app.arn}/*"]
       }
     ]
@@ -203,10 +203,10 @@ resource "aws_db_instance" "jeonlog" {
   db_subnet_group_name   = module.network.rds_subnet_group_name
   vpc_security_group_ids = [module.network.rds_security_group_id]
 
-  publicly_accessible         = false
-  skip_final_snapshot         = true
-  backup_retention_period     = 7
-  backup_window               = "03:00-04:00"
+  publicly_accessible     = false
+  skip_final_snapshot     = true
+  backup_retention_period = 7
+  backup_window           = "03:00-04:00"
 
   tags = {
     Name = "${var.name_prefix}-rds"
@@ -256,7 +256,7 @@ module "asg" {
   min_size              = var.min_size
   max_size              = var.max_size
   desired_capacity      = var.desired_capacity
-  user_data             = templatefile("${path.module}/scripts/user_data.sh", {
+  user_data = templatefile("${path.module}/scripts/user_data.sh", {
     s3_bucket = data.aws_s3_bucket.app.bucket
     app_port  = var.app_port
   })

@@ -78,9 +78,9 @@ resource "aws_iam_role_policy" "github_actions_deploy" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid    = "SSMParameter"
-        Effect = "Allow"
-        Action = ["ssm:PutParameter", "ssm:GetParameter"]
+        Sid      = "SSMParameter"
+        Effect   = "Allow"
+        Action   = ["ssm:PutParameter", "ssm:GetParameter"]
         Resource = ["arn:aws:ssm:ap-northeast-2:${data.aws_caller_identity.current.account_id}:parameter/jeonlog/*"]
       },
       {

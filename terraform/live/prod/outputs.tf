@@ -1,6 +1,6 @@
 output "alb_dns_name" {
   value       = module.alb.alb_dns_name
-  description = "앱 접근 URL: http://<alb_dns_name>"
+  description = "애플리케이션 도메인의 DNS 연결 대상. HTTPS 접근에는 ACM 인증서와 일치하는 도메인 사용"
 }
 
 output "asg_name" {
@@ -40,6 +40,6 @@ output "rds_endpoint" {
 }
 
 output "grafana_url" {
-  description = "Grafana 대시보드 URL (2차 TFA 후 확인)"
+  description = "허용된 관리 CIDR에서 접근할 Grafana URL"
   value       = "http://${aws_instance.grafana.public_ip}:3000"
 }

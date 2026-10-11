@@ -122,7 +122,7 @@ variable "ecr_repository_arn" {
 
 variable "ecr_image_url" {
   type        = string
-  description = "실행할 이미지 URL (예: 488675216847.dkr.ecr.ap-northeast-2.amazonaws.com/jeonlog-app:prod-abc123)"
+  description = "실행할 이미지 URL (예: 123456789012.dkr.ecr.ap-northeast-2.amazonaws.com/jeonlog-app:prod-abc123)"
   default     = null
 }
 
