@@ -10,15 +10,48 @@ Jeonlog 애플리케이션의 네트워크, 실행 환경, 데이터베이스, �
 
 검토 순서: **[프로젝트 요약](docs/portfolio.md) → [설계와 한계](docs/architecture.md) → [운영 절차](docs/operations.md) → [검증 기록](docs/verification.md)**
 
+## 저장소 구조
+
+```text
+.
+├── .github/workflows/validate.yml  # CI 검증
+├── docs/                          # 설계·운영·검증·포트폴리오 자료
+├── scripts/validate.sh            # 로컬과 CI의 공통 검증 진입점
+└── terraform/
+    ├── live/                     # 독립적으로 실행하는 root stack
+    │   ├── ecr/                  # 이미지 저장소와 GitHub 배포 인증
+    │   │   ├── main.tf           # ECR 저장소·이미지 보존 정책
+    │   │   ├── iam.tf            # GitHub OIDC·배포 역할·권한
+    │   │   └── data.tf           # AWS 계정·리전 조회
+    │   └── prod/                 # 운영 인프라 조합
+    │       ├── main.tf           # network·alb·asg 모듈 연결
+    │       ├── data.tf           # 기존 S3·ACM 및 AWS 계정 조회
+    │       ├── iam.tf            # 애플리케이션 EC2 역할·권한
+    │       ├── database.tf       # RDS 스냅샷 복원
+    │       ├── deployment.tf     # 배포 이미지 URL용 SSM 파라미터
+    │       ├── logging.tf        # ALB 접근 로그·CloudWatch 로그
+    │       ├── grafana.tf        # 모니터링 EC2와 전용 SG·IAM
+    │       └── scripts/          # 앱·모니터링 부팅 템플릿
+    └── modules/                  # 재사용 인프라 구성
+        ├── network/              # VPC·서브넷·라우팅·DB subnet group
+        │   └── security_groups.tf # ALB·앱·RDS 보안그룹
+        ├── alb/                  # HTTPS listener·Target Group
+        └── asg/                  # Launch Template·ASG·확장 정책
+```
+
+각 스택의 `provider.tf`는 Terraform·provider 요구사항과 AWS 연결을, `variables.tf`와 `outputs.tf`는 입력·출력을 정의합니다. `terraform.tfvars.example`과 `.terraform.lock.hcl`도 스택별로 관리합니다. 각 모듈은 `main.tf`, `variables.tf`, `outputs.tf`를 기본으로 사용합니다.
+
+스택 내부의 파일은 책임별로 나눈 것이며 같은 디렉터리에서 함께 로드됩니다. 실행 위치는 `terraform/live/ecr`과 `terraform/live/prod`입니다. 모니터링 전용 보안그룹·IAM은 `grafana.tf`에 함께 두어 해당 구성의 의존성을 한곳에서 확인할 수 있습니다.
+
 ## 핵심 구현
 
 | 영역 | 구현 내용 | 코드 |
 | --- | --- | --- |
 | 인프라 코드화 | VPC·서브넷·보안그룹, ALB, ASG를 모듈로 분리 | [modules](terraform/modules) |
-| 트래픽과 접근 제어 | ACM HTTPS 종료, HTTP 리다이렉트, ALB → 앱 → RDS 보안그룹 참조 | [ALB](terraform/modules/alb/main.tf), [network](terraform/modules/network/main.tf) |
+| 트래픽과 접근 제어 | ACM HTTPS 종료, HTTP 리다이렉트, ALB → 앱 → RDS 보안그룹 참조 | [ALB](terraform/modules/alb/main.tf), [보안그룹](terraform/modules/network/security_groups.tf) |
 | 배포와 확장 | Launch Template, Rolling Instance Refresh, 평균 CPU 60% Target Tracking | [ASG](terraform/modules/asg/main.tf) |
-| 배포 인증 | GitHub OIDC 역할, ECR push, SSM 이미지 파라미터 갱신 및 ASG refresh 권한 | [ECR/OIDC](terraform/live/ecr/main.tf) |
-| 데이터 운영 | 기존 RDS 스냅샷으로 DB 생성, 비공개 접근, 백업 보존 7일 | [prod](terraform/live/prod/main.tf) |
+| 배포 인증 | GitHub OIDC 역할, ECR push, SSM 이미지 파라미터 갱신 및 ASG refresh 권한 | [OIDC·배포 권한](terraform/live/ecr/iam.tf) |
+| 데이터 운영 | 기존 RDS 스냅샷으로 DB 생성, 비공개 접근, 백업 보존 7일 | [RDS](terraform/live/prod/database.tf) |
 | 관측 | EC2 Service Discovery 기반 Prometheus 수집, Grafana, CloudWatch 로그 | [모니터링](terraform/live/prod/scripts/grafana_setup.sh), [부팅 스크립트](terraform/live/prod/scripts/user_data.sh) |
 | 구성 검증 | Terraform 형식·구성 검사와 Bash 구문 검사 자동화 | [검증 스크립트](scripts/validate.sh), [CI](.github/workflows/validate.yml) |
 

@@ -36,7 +36,7 @@ cp terraform/live/ecr/terraform.tfvars.example terraform/live/ecr/terraform.tfva
 cp terraform/live/prod/terraform.tfvars.example terraform/live/prod/terraform.tfvars
 ```
 
-1. `live/ecr/main.tf`의 OIDC 신뢰 저장소·브랜치와 역할 이름을 검토합니다. 계정에 GitHub OIDC provider가 이미 있다면 import 등 기존 자원 관리 방식을 먼저 결정합니다.
+1. `live/ecr/iam.tf`의 OIDC 신뢰 저장소·브랜치와 역할 이름을 검토합니다. 계정에 GitHub OIDC provider가 이미 있다면 import 등 기존 자원 관리 방식을 먼저 결정합니다.
 2. ECR 스택의 계획을 확인합니다.
 
    ```bash

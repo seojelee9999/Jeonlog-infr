@@ -22,7 +22,7 @@
 | 영역 | 구현 내용 | 근거 |
 | --- | --- | --- |
 | 인프라 코드화 | VPC·서브넷·보안그룹, ALB, ASG 모듈화 | [Terraform 모듈](../terraform/modules) |
-| 배포 연계 | OIDC 역할, ECR push 권한, SSM 이미지 갱신 및 ASG 교체 권한 | [ECR/OIDC](../terraform/live/ecr/main.tf) |
+| 배포 연계 | OIDC 역할, ECR push 권한, SSM 이미지 갱신 및 ASG 교체 권한 | [OIDC·배포 권한](../terraform/live/ecr/iam.tf) |
 | 실행 환경 | 런타임 설정 및 이미지 조회, 컨테이너 실행 | [부팅 스크립트](../terraform/live/prod/scripts/user_data.sh) |
 | 관측 환경 | EC2 자동 탐색 기반 Prometheus 수집, Grafana, CloudWatch 로그 | [모니터링 설정](../terraform/live/prod/scripts/grafana_setup.sh) |
 
