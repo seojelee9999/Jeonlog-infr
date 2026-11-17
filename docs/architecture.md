@@ -2,6 +2,8 @@
 
 이 문서는 **저장소에 보존된 Terraform 구성**을 설명합니다. 실제 운영 중 수행한 ALB 제거와 Grafana의 비공개 접근·네트워크 배치 변경은 [운영 변경 기록](operations-history.md)에 분리했습니다. 아래 설명을 서비스 종료 시점의 최종 구성으로 해석하지 않습니다.
 
+README에 반영한 프라이빗 모니터링·Redis 분리·Session Manager 접근은 [모니터링 개선 설계](monitoring-architecture.md)에서 설명합니다. 해당 설계는 아래 기존 코드 구성에 아직 적용되지 않았습니다.
+
 ## 구성 경계
 
 | 스택·모듈 | 책임 |

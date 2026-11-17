@@ -15,11 +15,13 @@
 
 **ALB → 여러 EC2의 Nginx → WAS**로 이어지는 요청 처리 구조입니다. 애플리케이션 EC2와 별도로 모니터링 EC2를 두고, 모니터링 서버와 RDS는 Private Subnet에 배치합니다. EC2에서 운영하는 Nginx, WAS, Prometheus, Grafana, Redis는 모두 Docker 컨테이너로 실행합니다.
 
-아래는 ALB를 사용하는 서비스 구조에 모니터링 EC2의 프라이빗 배치를 반영한 구성도입니다. 운영 중 ALB를 제거한 이력은 아래 운영 경험에 별도로 정리했습니다.
+아래는 서비스의 요청 처리 구조에 **모니터링 개선 설계**를 반영한 구성도입니다. 모니터링의 프라이빗 배치, Redis 분리, Session Manager 접근은 설계안이며, 현재 코드의 배포 상태와는 구분합니다. 운영 중 ALB를 제거한 이력은 아래 운영 경험에 정리했습니다.
 
 ```mermaid
 flowchart TB
     Client["사용자"] -->|HTTPS| ALB
+    Admin["관리자"] -.->|IAM 인증 · 포트 포워딩| SSMAccess["AWS Session Manager"]
+    SSMAccess -.->|SSM Agent 터널 · Grafana 조회| Grafana
 
     subgraph VPC["AWS VPC"]
         subgraph Public["Public Subnet 영역"]
@@ -47,8 +49,10 @@ flowchart TB
             subgraph Monitor["모니터링 EC2 · Docker · Public IP 없음"]
                 Prom["Prometheus 컨테이너"]
                 Grafana["Grafana 컨테이너"]
-                Redis["Redis 컨테이너"]
                 Grafana -.->|메트릭 조회| Prom
+            end
+            subgraph Cache["캐시 EC2 · Docker"]
+                Redis["Redis 컨테이너"]
             end
         end
 
@@ -61,7 +65,7 @@ flowchart TB
     end
 ```
 
-실선은 서비스 요청·데이터 접근, 점선은 모니터링 흐름입니다. EC2 두 대와 WAS 그룹은 분산 구조를 표현하며, 실제 인스턴스·컨테이너 수나 AZ 배치를 의미하지 않습니다. ALB와 RDS는 AWS 관리형 서비스입니다.
+실선은 서비스 요청·데이터 접근, 점선은 모니터링·관리 흐름입니다. Session Manager 연결은 EC2의 SSM Agent가 시작하는 아웃바운드 세션을 사용합니다. EC2 두 대와 WAS 그룹은 분산 구조를 표현하며, 실제 인스턴스·컨테이너 수나 AZ 배치를 의미하지 않습니다. ALB와 RDS는 AWS 관리형 서비스입니다.
 
 ### 요청 처리와 부하 분산
 
@@ -77,11 +81,11 @@ ALB는 **EC2 사이의 분산**, Nginx는 **WAS로의 전달과 upstream 대상 
 | 영역 | 구성 | 역할과 접근 경계 |
 | --- | --- | --- |
 | Public Subnet | ALB, 애플리케이션 EC2 | 외부 요청은 ALB를 통해 받고, EC2의 서비스 인바운드는 ALB 보안그룹을 기준으로 제한 |
-| Private Subnet | 모니터링 EC2 | Public IP 없이 내부 주소로 지표 수집·조회, 관리 접속은 별도의 비공개 접근 경로로 분리 |
+| Private Subnet | 모니터링 EC2 | Public IP 없이 내부 주소로 지표 수집, Grafana는 Session Manager 포트 포워딩으로 조회 |
 | Private Subnet | RDS MySQL | 애플리케이션 데이터를 저장하고, 허용된 보안그룹에서만 DB 접근 |
-| 모니터링 EC2 내부 | Redis 컨테이너 | WAS에서 사용하는 캐시 제공, 애플리케이션에서 내부 주소로 접근 |
+| Private Subnet | 별도 캐시 EC2의 Redis 컨테이너 | WAS에서 내부 주소로 접근, 모니터링 서버와 자원·장애 범위 분리 |
 
-모니터링 EC2는 애플리케이션 서버와 분리해 지표 수집과 대시보드 조회를 담당합니다. 기존에 Bastion을 겸하던 공개 배치에서 프라이빗 배치로 변경한 구조를 반영했습니다. Redis는 같은 EC2에서 실행하므로, 이 서버의 장애는 모니터링과 캐시에 함께 영향을 줄 수 있습니다.
+모니터링 EC2는 지표 수집과 대시보드 조회를 담당하고, 관리자 접속은 Session Manager가 담당하도록 역할을 나눕니다. Redis는 별도 EC2로 분리해 모니터링 서버의 재시작이나 메모리 부족이 캐시 장애로 이어지는 것을 줄입니다. 프라이빗 서버의 AWS API 호출과 이미지 다운로드에는 Public Subnet의 NAT Gateway를 통한 아웃바운드 경로를 사용하며, 상세 경로는 [모니터링 설계](docs/monitoring-architecture.md)에 정리했습니다.
 
 ## Docker 기반 실행과 배포
 
@@ -103,20 +107,60 @@ flowchart LR
 
 GitHub Actions는 OIDC로 AWS 배포 역할을 사용합니다. 이 저장소는 해당 권한과 인프라, 부팅 스크립트를 관리하며, 이미지 빌드와 실제 배포 workflow는 애플리케이션 저장소에서 관리합니다.
 
-## 모니터링과 로그
+## 모니터링과 로그 — 개선 설계
 
-| 도구 | 수집·조회 대상 | 운영 목적 |
+**수집은 Prometheus, 조회와 애플리케이션 알림은 Grafana, AWS 지표와 로그는 CloudWatch**로 역할을 나눕니다. 기존 Docker 기반 운영 방식에 맞춰 Prometheus와 Grafana는 별도 모니터링 EC2에서 함께 실행합니다.
+
+```mermaid
+flowchart LR
+    subgraph Targets["애플리케이션 EC2 · ASG"]
+        Node["Node Exporter 컨테이너<br/>호스트 자원 지표"]
+        Actuator["WAS 컨테이너<br/>Actuator 메트릭"]
+        Agent["CloudWatch Agent<br/>컨테이너 · 시스템 로그"]
+    end
+
+    subgraph PrivateMonitor["Private Subnet · 모니터링 EC2"]
+        Prometheus["Prometheus 컨테이너<br/>EC2 Service Discovery"]
+        Dashboard["Grafana 컨테이너<br/>대시보드 · Alerting"]
+        Disk[("EBS 데이터 볼륨")]
+        Prometheus -->|시계열 저장| Disk
+        Dashboard -->|설정 · 상태 저장| Disk
+        Dashboard -.->|PromQL 조회| Prometheus
+    end
+
+    Prometheus -.->|Private IP · 9100| Node
+    Prometheus -.->|Private IP · 관리 포트| Actuator
+    Agent --> CWLogs["CloudWatch Logs"]
+    AWSResources["ALB · RDS"] --> CWMetrics["CloudWatch Metrics"]
+    Dashboard -.->|AWS 지표 조회| CWMetrics
+    Dashboard -.->|장애 로그 조회| CWLogs
+    Dashboard -->|오류율 · 지연 · 자원 알림| Contact["운영 알림 채널"]
+    MonitorStatus["모니터링 EC2 상태 검사 지표"] --> Alarm["CloudWatch Alarm"]
+    Alarm --> SNS["SNS · 운영자 알림"]
+```
+
+점선은 조회·수집 요청, 실선은 저장·전송 경로입니다. 관리자 접근과 NAT를 통한 외부 통신은 별도 경로이며 [상세 설계](docs/monitoring-architecture.md)에서 설명합니다.
+
+| 대상 | 수집·조회 경로 | 확인할 내용 |
 | --- | --- | --- |
-| Prometheus | Node Exporter 및 WAS의 Spring Actuator 메트릭 | 서버 자원과 애플리케이션 상태 확인 |
-| Grafana | Prometheus 메트릭 시각화 | CPU·메모리·디스크·네트워크 상태를 대시보드에서 조회 |
-| CloudWatch Logs | 애플리케이션 컨테이너 로그, 시스템 로그 | 인스턴스별 실행 상태와 오류 원인 추적 |
-| S3 | ALB 접근 로그 | 외부 요청 기록 확인 |
+| EC2 호스트 | Node Exporter → Prometheus → Grafana | CPU·메모리·디스크·네트워크 |
+| WAS | Spring Actuator → Prometheus → Grafana | 요청량·오류율·응답 지연·JVM 상태 |
+| ALB·RDS | CloudWatch Metrics → Grafana | 정상 대상 수·ALB 오류·DB 연결 수·저장 공간 |
+| 실행 로그 | CloudWatch Agent → CloudWatch Logs → Grafana | 컨테이너·시스템 오류 원인 |
+| ALB 접근 기록 | ALB → S3 | 요청 단위 접근 로그 |
+| 모니터링 EC2 장애 | EC2 상태 검사 → CloudWatch Alarm → SNS | 모니터링 서버와 독립된 장애 알림 |
 
-Prometheus는 EC2 Service Discovery로 ASG의 인스턴스를 탐색합니다. 인스턴스 교체·확장에 따라 수집 대상을 찾도록 구성해, 서버 IP를 수동으로 관리하는 부담을 줄였습니다.
+Prometheus는 ASG 태그로 EC2를 자동 탐색하고 내부 주소의 메트릭 엔드포인트를 수집합니다. Node Exporter와 Actuator 관리 포트는 모니터링 보안그룹에만 허용하고, Nginx·ALB 경로에서는 Actuator 접근을 차단하도록 설계합니다. 여러 WAS를 운영할 경우 각 컨테이너의 수집 대상도 개별 등록해 인스턴스별 지표가 섞이지 않게 합니다.
+
+Grafana는 호스트의 `127.0.0.1:3000`에만 바인딩하고 Session Manager 포트 포워딩으로 접속합니다. Prometheus는 Docker 내부 네트워크에서 Grafana에 제공하며 외부에 포트를 공개하지 않습니다. [AWS 포트 포워딩 문서](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-sessions-start.html)
+
+Grafana의 CloudWatch 데이터소스는 EC2 IAM 역할로 필요한 지표와 로그를 읽도록 구성합니다. [Grafana CloudWatch 문서](https://grafana.com/docs/grafana/latest/datasources/aws-cloudwatch/configure/)
+
+Prometheus·Grafana 데이터는 EBS에 영속화하고 스냅샷으로 백업하도록 계획합니다. 모니터링 EC2 한 대가 중단되면 수집·조회·Grafana 알림도 중단되므로, EC2 상태 검사 실패 알림은 CloudWatch와 SNS에 별도로 둡니다. 이 구조는 복구 가능한 단일 서버 설계이며 모니터링 고가용성 구성은 아닙니다.
 
 ![Grafana에서 확인하는 CPU·메모리·디스크·네트워크 지표](docs/grafana-dashboard.png)
 
-운영 중 사용한 인프라 지표 대시보드입니다. 별도로 DAU·MAU 등 서비스 이용 지표를 확인하는 Grafana 대시보드도 구성했습니다.
+기존 운영 환경의 인프라 지표 화면입니다. 위 개선 설계의 적용 결과를 의미하지 않습니다. 운영 중에는 별도로 DAU·MAU 등 서비스 이용 지표를 확인하는 Grafana 대시보드도 구성했습니다.
 
 ## 운영 경험과 설계 판단
 
@@ -129,7 +173,7 @@ Prometheus는 EC2 Service Discovery로 ASG의 인스턴스를 탐색합니다. �
 
 ## 저장소 안내
 
-Terraform은 위 아키텍처의 인프라 구성과 배포 권한을 코드로 관리하기 위한 도구로 사용했습니다.
+Terraform은 기존 서비스 인프라와 배포 권한을 코드로 관리하는 데 사용했습니다. 모니터링 개선 설계는 문서에 먼저 정리했습니다.
 
 ```text
 terraform/
@@ -141,8 +185,9 @@ docs/          # 설계·운영 경험·검증 자료
 scripts/       # 로컬·CI 공통 검증 스크립트
 ```
 
-**문서와 코드의 범위:** 위 구성도는 서비스의 요청 처리 구조와 모니터링 EC2의 프라이빗 배치를 반영합니다. 보존된 Terraform에는 모니터링 EC2의 Public IP 및 공개 서브넷 설정이 남아 있고, 앱 부팅 스크립트에는 Nginx·복수 WAS 구성이 포함되어 있지 않습니다. 실제 반영 시에는 Nginx 설정·ALB 대상 포트와 함께 프라이빗 서버의 관리 접속 및 이미지 다운로드 경로를 구성해야 합니다. 코드상 앱 ASG는 단일 서브넷을 사용합니다.
+**문서와 코드의 범위:** 저장소에는 공개 모니터링 EC2에서 Prometheus·Grafana·Redis를 함께 실행하는 기존 코드가 보존되어 있습니다. 프라이빗 배치, Redis 분리, Session Manager, NAT, 알림·백업은 개선 설계이며 Terraform에 반영되지 않았습니다. 앱 부팅 스크립트에는 Nginx·복수 WAS 구성이 없고, 코드상 앱 ASG는 단일 서브넷을 사용합니다.
 
+- [모니터링 개선 설계와 적용 항목](docs/monitoring-architecture.md)
 - [코드 기준 설계와 개선 과제](docs/architecture.md)
 - [환경 준비와 운영 절차](docs/operations.md)
 - [검증 기록](docs/verification.md)
