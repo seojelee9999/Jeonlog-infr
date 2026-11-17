@@ -15,7 +15,7 @@
 
 **ALB → 여러 EC2의 Nginx → WAS**로 이어지는 요청 처리 구조입니다. 애플리케이션 EC2와 별도로 모니터링 EC2를 두고, 모니터링 서버와 RDS는 Private Subnet에 배치합니다. EC2에서 운영하는 Nginx, WAS, Prometheus, Grafana, Redis는 모두 Docker 컨테이너로 실행합니다.
 
-아래는 서비스의 요청 처리 구조에 **모니터링 개선 설계**를 반영한 구성도입니다. 모니터링의 프라이빗 배치, Redis 분리, Session Manager 접근은 설계안이며, 현재 코드의 배포 상태와는 구분합니다. 운영 중 ALB를 제거한 이력은 아래 운영 경험에 정리했습니다.
+
 
 ```mermaid
 flowchart TB
@@ -65,7 +65,6 @@ flowchart TB
     end
 ```
 
-실선은 서비스 요청·데이터 접근, 점선은 모니터링·관리 흐름입니다. Session Manager 연결은 EC2의 SSM Agent가 시작하는 아웃바운드 세션을 사용합니다. EC2 두 대와 WAS 그룹은 분산 구조를 표현하며, 실제 인스턴스·컨테이너 수나 AZ 배치를 의미하지 않습니다. ALB와 RDS는 AWS 관리형 서비스입니다.
 
 ### 요청 처리와 부하 분산
 
@@ -85,7 +84,6 @@ ALB는 **EC2 사이의 분산**, Nginx는 **WAS로의 전달과 upstream 대상 
 | Private Subnet | RDS MySQL | 애플리케이션 데이터를 저장하고, 허용된 보안그룹에서만 DB 접근 |
 | Private Subnet | 별도 캐시 EC2의 Redis 컨테이너 | WAS에서 내부 주소로 접근, 모니터링 서버와 자원·장애 범위 분리 |
 
-모니터링 EC2는 지표 수집과 대시보드 조회를 담당하고, 관리자 접속은 Session Manager가 담당하도록 역할을 나눕니다. Redis는 별도 EC2로 분리해 모니터링 서버의 재시작이나 메모리 부족이 캐시 장애로 이어지는 것을 줄입니다. 프라이빗 서버의 AWS API 호출과 이미지 다운로드에는 Public Subnet의 NAT Gateway를 통한 아웃바운드 경로를 사용하며, 상세 경로는 [모니터링 설계](docs/monitoring-architecture.md)에 정리했습니다.
 
 ## Docker 기반 실행과 배포
 
@@ -169,8 +167,6 @@ Prometheus·Grafana 데이터는 EBS에 영속화하고 스냅샷으로 백업�
 - **네트워크 배치 개선:** DB와 Grafana의 리전 간 통신 비용 문제에 대응해 Grafana를 DB와 같은 리전·네트워크 대역으로 재배치하고 비공개 접근 환경을 구성했습니다.
 - **운영 규모에 따른 구성 조정:** 운영 중 비용을 검토해 ALB를 제거했습니다. 위 구성도는 ALB가 있는 구조를 설명하며, 제거 이후의 최종 요청 경로와는 구분합니다.
 
-회원 수는 서비스 종료 시 130명이며, 비용 절감률이나 무중단 배포 성과는 별도로 측정하지 않았습니다. 구체적인 경험은 [프로젝트·역할 소개](docs/portfolio.md)와 [운영 변경 기록](docs/operations-history.md)에 정리했습니다.
-
 ## 저장소 안내
 
 Terraform은 기존 서비스 인프라와 배포 권한을 코드로 관리하는 데 사용했습니다. 모니터링 개선 설계는 문서에 먼저 정리했습니다.
@@ -184,8 +180,6 @@ terraform/
 docs/          # 설계·운영 경험·검증 자료
 scripts/       # 로컬·CI 공통 검증 스크립트
 ```
-
-**문서와 코드의 범위:** 저장소에는 공개 모니터링 EC2에서 Prometheus·Grafana·Redis를 함께 실행하는 기존 코드가 보존되어 있습니다. 프라이빗 배치, Redis 분리, Session Manager, NAT, 알림·백업은 개선 설계이며 Terraform에 반영되지 않았습니다. 앱 부팅 스크립트에는 Nginx·복수 WAS 구성이 없고, 코드상 앱 ASG는 단일 서브넷을 사용합니다.
 
 - [모니터링 개선 설계와 적용 항목](docs/monitoring-architecture.md)
 - [코드 기준 설계와 개선 과제](docs/architecture.md)
